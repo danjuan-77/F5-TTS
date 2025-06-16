@@ -19,7 +19,6 @@ from f5_tts.model import CFM
 from f5_tts.model.dataset import DynamicBatchSampler, collate_fn
 from f5_tts.model.utils import default, exists
 
-
 # trainer
 
 
@@ -396,9 +395,6 @@ class Trainer:
                         self.writer.add_scalar("loss", loss.item(), global_update)
                         self.writer.add_scalar("lr", self.scheduler.get_last_lr()[0], global_update)
 
-                if global_update % self.last_per_updates == 0 and self.accelerator.sync_gradients:
-                    self.save_checkpoint(global_update, last=True)
-
                 if global_update % self.save_per_updates == 0 and self.accelerator.sync_gradients:
                     self.save_checkpoint(global_update)
 
@@ -420,8 +416,74 @@ class Trainer:
                             gen_mel_spec = generated[:, ref_audio_len:, :].permute(0, 2, 1).to(self.accelerator.device)
                             ref_mel_spec = batch["mel"][0].unsqueeze(0)
                             if self.vocoder_name == "vocos":
-                                gen_audio = vocoder.decode(gen_mel_spec).cpu()
-                                ref_audio = vocoder.decode(ref_mel_spec).cpu()
+                                # log mag
+                                ref_log_magnitude = ref_mel_spec.cpu().squeeze(0)
+                                ref_magnitude = torch.exp(ref_log_magnitude)
+                                sin_phase = torch.zeros_like(ref_magnitude)
+                                cos_phase = torch.zeros_like(ref_magnitude)
+                                re_phase = torch.atan2(sin_phase, cos_phase)  # => (1, F, T)
+                                re_real = ref_magnitude * torch.cos(re_phase)  # (1, F, T)
+                                re_imag = ref_magnitude * torch.sin(re_phase)  # (1, F, T)
+
+                                re_complex = torch.stack([re_real, re_imag], dim=-1)  # (1, F, T, 2)
+                                re_complex = torch.view_as_complex(re_complex)    
+                                
+                                ref_audio = torch.istft(
+                                    re_complex,
+                                    n_fft = self.accelerator.unwrap_model(self.model).mel_spec.n_fft,
+                                    hop_length = self.accelerator.unwrap_model(self.model).mel_spec.hop_length,
+                                    win_length = self.accelerator.unwrap_model(self.model).mel_spec.win_length,
+                                    window = torch.hann_window(self.accelerator.unwrap_model(self.model).mel_spec.win_length),
+                                    center=True,
+                                    normalized=False,
+                                    onesided=True,   # 正向默认 onesided=True
+                                    length=None      # 如果需要固定输出长度可在此指定
+                                ).unsqueeze(0)
+                                
+                                gen_log_magnitude = gen_mel_spec.cpu().squeeze(0)
+                                gen_magnitude = torch.exp(gen_log_magnitude)
+                                sin_phase = torch.zeros_like(gen_magnitude)
+                                cos_phase = torch.zeros_like(gen_magnitude)
+                                gen_phase = torch.atan2(sin_phase, cos_phase)  # => (1, F, T)
+                                gen_real = ref_magnitude * torch.cos(gen_phase)  # (1, F, T)
+                                gen_imag = ref_magnitude * torch.sin(gen_phase)  # (1, F, T)
+
+                                gen_complex = torch.stack([gen_real, gen_imag], dim=-1)  # (1, F, T, 2)
+                                gen_complex = torch.view_as_complex(gen_complex)    
+                                
+                                gen_audio = torch.istft(
+                                    gen_complex,
+                                    n_fft = self.accelerator.unwrap_model(self.model).mel_spec.n_fft,
+                                    hop_length = self.accelerator.unwrap_model(self.model).mel_spec.hop_length,
+                                    win_length = self.accelerator.unwrap_model(self.model).mel_spec.win_length,
+                                    window = torch.hann_window(self.accelerator.unwrap_model(self.model).mel_spec.win_length),
+                                    center=True,
+                                    normalized=False,
+                                    onesided=True,   # 正向默认 onesided=True
+                                    length=None      # 如果需要固定输出长度可在此指定
+                                ).unsqueeze(0)
+                                # complex predict
+                                # ref_audio = ref_mel_spec.cpu().squeeze(0)
+                                # ref_audio_re, ref_audio_im = torch.chunk(ref_audio,chunks=2)
+                                # ref_audio_complex = torch.view_as_complex(torch.stack([ref_audio_re,ref_audio_im],dim=-1))
+                                # ref_audio = torch.istft(
+                                #     ref_audio_complex,
+                                #     n_fft = self.accelerator.unwrap_model(self.model).mel_spec.n_fft,
+                                #     hop_length = self.accelerator.unwrap_model(self.model).mel_spec.hop_length,
+                                #     win_length = self.accelerator.unwrap_model(self.model).mel_spec.win_length,
+                                #     window = torch.hann_window(self.accelerator.unwrap_model(self.model).mel_spec.win_length),
+                                # ).unsqueeze(0)
+                                
+                                # gen_audio = gen_mel_spec.cpu().squeeze(0)
+                                # gen_audio_re, gen_audio_im = torch.chunk(gen_audio, chunks=2)
+                                # gen_audio_complex = torch.view_as_complex(torch.stack([gen_audio_re, gen_audio_im], dim=-1))
+                                # gen_audio = torch.istft(
+                                #     gen_audio_complex,
+                                #     n_fft=self.accelerator.unwrap_model(self.model).mel_spec.n_fft,
+                                #     hop_length=self.accelerator.unwrap_model(self.model).mel_spec.hop_length,
+                                #     win_length=self.accelerator.unwrap_model(self.model).mel_spec.win_length,
+                                #     window=torch.hann_window(self.accelerator.unwrap_model(self.model).mel_spec.win_length),
+                                # ).unsqueeze(0)
                             elif self.vocoder_name == "bigvgan":
                                 gen_audio = vocoder(gen_mel_spec).squeeze(0).cpu()
                                 ref_audio = vocoder(ref_mel_spec).squeeze(0).cpu()
@@ -433,6 +495,9 @@ class Trainer:
                             f"{log_samples_path}/update_{global_update}_ref.wav", ref_audio, target_sample_rate
                         )
                         self.model.train()
+
+                if global_update % self.last_per_updates == 0 and self.accelerator.sync_gradients:
+                    self.save_checkpoint(global_update, last=True)
 
         self.save_checkpoint(global_update, last=True)
 

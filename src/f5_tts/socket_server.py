@@ -1,6 +1,7 @@
 import argparse
 import gc
 import logging
+import numpy as np
 import queue
 import socket
 import struct
@@ -9,7 +10,6 @@ import traceback
 import wave
 from importlib.resources import files
 
-import numpy as np
 import torch
 import torchaudio
 from huggingface_hub import hf_hub_download
@@ -18,12 +18,11 @@ from omegaconf import OmegaConf
 
 from f5_tts.infer.utils_infer import (
     chunk_text,
-    infer_batch_process,
-    load_model,
-    load_vocoder,
     preprocess_ref_audio_text,
+    load_vocoder,
+    load_model,
+    infer_batch_process,
 )
-
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)

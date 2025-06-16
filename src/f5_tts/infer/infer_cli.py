@@ -14,20 +14,20 @@ from hydra.utils import get_class
 from omegaconf import OmegaConf
 
 from f5_tts.infer.utils_infer import (
-    cfg_strength,
+    mel_spec_type,
+    target_rms,
     cross_fade_duration,
-    device,
+    nfe_step,
+    cfg_strength,
+    sway_sampling_coef,
+    speed,
     fix_duration,
+    device,
     infer_process,
     load_model,
     load_vocoder,
-    mel_spec_type,
-    nfe_step,
     preprocess_ref_audio_text,
     remove_silence_for_generated_wav,
-    speed,
-    sway_sampling_coef,
-    target_rms,
 )
 
 
@@ -211,16 +211,16 @@ fix_duration = args.fix_duration or config.get("fix_duration", fix_duration)
 device = args.device or config.get("device", device)
 
 
-# # patches for pip pkg user
-# if "infer/examples/" in ref_audio:
-#     ref_audio = str(files("f5_tts").joinpath(f"{ref_audio}"))
-# if "infer/examples/" in gen_file:
-#     gen_file = str(files("f5_tts").joinpath(f"{gen_file}"))
-# if "voices" in config:
-#     for voice in config["voices"]:
-#         voice_ref_audio = config["voices"][voice]["ref_audio"]
-#         if "infer/examples/" in voice_ref_audio:
-#             config["voices"][voice]["ref_audio"] = str(files("f5_tts").joinpath(f"{voice_ref_audio}"))
+# patches for pip pkg user
+if "infer/examples/" in ref_audio:
+    ref_audio = str(files("f5_tts").joinpath(f"{ref_audio}"))
+if "infer/examples/" in gen_file:
+    gen_file = str(files("f5_tts").joinpath(f"{gen_file}"))
+if "voices" in config:
+    for voice in config["voices"]:
+        voice_ref_audio = config["voices"][voice]["ref_audio"]
+        if "infer/examples/" in voice_ref_audio:
+            config["voices"][voice]["ref_audio"] = str(files("f5_tts").joinpath(f"{voice_ref_audio}"))
 
 
 # ignore gen_text if gen_file provided
@@ -323,7 +323,7 @@ def main():
         ref_text_ = voices[voice]["ref_text"]
         gen_text_ = text.strip()
         print(f"Voice: {voice}")
-        audio_segment, final_sample_rate, spectrogram = infer_process(
+        audio_segment, final_sample_rate, spectragram = infer_process(
             ref_audio_,
             ref_text_,
             gen_text_,

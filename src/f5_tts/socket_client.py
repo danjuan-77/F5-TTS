@@ -1,11 +1,9 @@
-import asyncio
-import logging
 import socket
-import time
-
-import numpy as np
+import asyncio
 import pyaudio
-
+import numpy as np
+import logging
+import time
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)

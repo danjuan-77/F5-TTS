@@ -10,18 +10,19 @@ d - dimension
 from __future__ import annotations
 
 import torch
-import torch.nn.functional as F
 from torch import nn
+import torch.nn.functional as F
+
 from x_transformers.x_transformers import RotaryEmbedding
 
 from f5_tts.model.modules import (
-    AdaLayerNorm_Final,
+    TimestepEmbedding,
     ConvNeXtV2Block,
     ConvPositionEmbedding,
     DiTBlock,
-    TimestepEmbedding,
-    get_pos_embed_indices,
+    AdaLayerNorm_Final,
     precompute_freqs_cis,
+    get_pos_embed_indices,
 )
 
 
@@ -116,8 +117,6 @@ class DiT(nn.Module):
         qk_norm=None,
         conv_layers=0,
         pe_attn_head=None,
-        attn_backend="torch",  # "torch" | "flash_attn"
-        attn_mask_enabled=False,
         long_skip_connection=False,
         checkpoint_activations=False,
     ):
@@ -147,8 +146,6 @@ class DiT(nn.Module):
                     dropout=dropout,
                     qk_norm=qk_norm,
                     pe_attn_head=pe_attn_head,
-                    attn_backend=attn_backend,
-                    attn_mask_enabled=attn_mask_enabled,
                 )
                 for _ in range(depth)
             ]
@@ -157,7 +154,9 @@ class DiT(nn.Module):
 
         self.norm_out = AdaLayerNorm_Final(dim)  # final modulation
         self.proj_out = nn.Linear(dim, mel_dim)
-
+        # 两个proj 分别预测a和b
+        # self.proj_a = nn.Linear(dim, mel_dim//2)
+        # self.proj_b = nn.Linear(dim, mel_dim//2)
         self.checkpoint_activations = checkpoint_activations
 
         self.initialize_weights()
@@ -173,6 +172,11 @@ class DiT(nn.Module):
         nn.init.constant_(self.norm_out.linear.bias, 0)
         nn.init.constant_(self.proj_out.weight, 0)
         nn.init.constant_(self.proj_out.bias, 0)
+        # zero init proj_a proj_b
+        # nn.init.constant_(self.proj_a.weight, 0)
+        # nn.init.constant_(self.proj_a.bias, 0)
+        # nn.init.constant_(self.proj_b.weight, 0)
+        # nn.init.constant_(self.proj_b.bias, 0)
 
     def ckpt_wrapper(self, module):
         # https://github.com/chuanyangjin/fast-DiT/blob/main/models.py
@@ -182,16 +186,26 @@ class DiT(nn.Module):
 
         return ckpt_forward
 
-    def get_input_embed(
+    def clear_cache(self):
+        self.text_cond, self.text_uncond = None, None
+
+    def forward(
         self,
-        x,  # b n d
-        cond,  # b n d
-        text,  # b nt
-        drop_audio_cond: bool = False,
-        drop_text: bool = False,
-        cache: bool = True,
+        x: float["b n d"],  # nosied input audio  # noqa: F722
+        cond: float["b n d"],  # masked cond audio  # noqa: F722
+        text: int["b nt"],  # text  # noqa: F722
+        time: float["b"] | float[""],  # time step  # noqa: F821 F722
+        drop_audio_cond,  # cfg for cond audio
+        drop_text,  # cfg for text
+        mask: bool["b n"] | None = None,  # noqa: F722
+        cache=False,
     ):
-        seq_len = x.shape[1]
+        batch, seq_len = x.shape[0], x.shape[1]
+        if time.ndim == 0:
+            time = time.repeat(batch)
+
+        # t: conditioning time, text: text, x: noised audio + cond audio + text
+        t = self.time_embed(time)
         if cache:
             if drop_text:
                 if self.text_uncond is None:
@@ -203,40 +217,7 @@ class DiT(nn.Module):
                 text_embed = self.text_cond
         else:
             text_embed = self.text_embed(text, seq_len, drop_text=drop_text)
-
         x = self.input_embed(x, cond, text_embed, drop_audio_cond=drop_audio_cond)
-
-        return x
-
-    def clear_cache(self):
-        self.text_cond, self.text_uncond = None, None
-
-    def forward(
-        self,
-        x: float["b n d"],  # nosied input audio  # noqa: F722
-        cond: float["b n d"],  # masked cond audio  # noqa: F722
-        text: int["b nt"],  # text  # noqa: F722
-        time: float["b"] | float[""],  # time step  # noqa: F821 F722
-        mask: bool["b n"] | None = None,  # noqa: F722
-        drop_audio_cond: bool = False,  # cfg for cond audio
-        drop_text: bool = False,  # cfg for text
-        cfg_infer: bool = False,  # cfg inference, pack cond & uncond forward
-        cache: bool = False,
-    ):
-        batch, seq_len = x.shape[0], x.shape[1]
-        if time.ndim == 0:
-            time = time.repeat(batch)
-
-        # t: conditioning time, text: text, x: noised audio + cond audio + text
-        t = self.time_embed(time)
-        if cfg_infer:  # pack cond & uncond forward: b n d -> 2b n d
-            x_cond = self.get_input_embed(x, cond, text, drop_audio_cond=False, drop_text=False, cache=cache)
-            x_uncond = self.get_input_embed(x, cond, text, drop_audio_cond=True, drop_text=True, cache=cache)
-            x = torch.cat((x_cond, x_uncond), dim=0)
-            t = torch.cat((t, t), dim=0)
-            mask = torch.cat((mask, mask), dim=0) if mask is not None else None
-        else:
-            x = self.get_input_embed(x, cond, text, drop_audio_cond=drop_audio_cond, drop_text=drop_text, cache=cache)
 
         rope = self.rotary_embed.forward_from_seq_len(seq_len)
 
@@ -254,6 +235,9 @@ class DiT(nn.Module):
             x = self.long_skip_connection(torch.cat((x, residual), dim=-1))
 
         x = self.norm_out(x, t)
+        # a = self.proj_a(x)
+        # b = self.proj_b(x)
+        # output = torch.concat([a,b],dim=-1)
         output = self.proj_out(x)
 
         return output

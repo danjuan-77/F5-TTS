@@ -1,7 +1,6 @@
 import os
 import sys
 
-
 sys.path.append(os.getcwd())
 
 import argparse
@@ -23,7 +22,6 @@ from f5_tts.eval.utils_eval import (
 from f5_tts.infer.utils_infer import load_checkpoint, load_vocoder
 from f5_tts.model import CFM
 from f5_tts.model.utils import get_tokenizer
-
 
 accelerator = Accelerator()
 device = f"cuda:{accelerator.process_index}"
@@ -148,15 +146,10 @@ def main():
         vocab_char_map=vocab_char_map,
     ).to(device)
 
-    ckpt_prefix = rel_path + f"/ckpts/{exp_name}/model_{ckpt_step}"
-    if os.path.exists(ckpt_prefix + ".pt"):
-        ckpt_path = ckpt_prefix + ".pt"
-    elif os.path.exists(ckpt_prefix + ".safetensors"):
-        ckpt_path = ckpt_prefix + ".safetensors"
-    else:
+    ckpt_path = rel_path + f"/ckpts/{exp_name}/model_{ckpt_step}.pt"
+    if not os.path.exists(ckpt_path):
         print("Loading from self-organized training checkpoints rather than released pretrained.")
         ckpt_path = rel_path + f"/{model_cfg.ckpts.save_dir}/model_{ckpt_step}.pt"
-
     dtype = torch.float32 if mel_spec_type == "bigvgan" else None
     model = load_checkpoint(model, ckpt_path, device, dtype=dtype, use_ema=use_ema)
 

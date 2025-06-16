@@ -7,18 +7,20 @@
 import os
 import sys
 
-
 sys.path.append(os.getcwd())
 
 import json
 from concurrent.futures import ProcessPoolExecutor
 from importlib.resources import files
 from pathlib import Path
-
-from datasets.arrow_writer import ArrowWriter
 from tqdm import tqdm
 
-from f5_tts.model.utils import convert_char_to_pinyin, repetition_found
+from datasets.arrow_writer import ArrowWriter
+
+from f5_tts.model.utils import (
+    repetition_found,
+    convert_char_to_pinyin,
+)
 
 
 out_zh = {

@@ -4,7 +4,6 @@
 # part of the code is borrowed from https://github.com/lawlict/ECAPA-TDNN
 
 import os
-
 import torch
 import torch.nn as nn
 import torch.nn.functional as F

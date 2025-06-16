@@ -1,17 +1,15 @@
 import os
 import sys
 
-
 sys.path.append(os.getcwd())
 
 import json
 from concurrent.futures import ProcessPoolExecutor
 from importlib.resources import files
 from pathlib import Path
-
+from tqdm import tqdm
 import soundfile as sf
 from datasets.arrow_writer import ArrowWriter
-from tqdm import tqdm
 
 
 def deal_with_audio_dir(audio_dir):
@@ -83,7 +81,7 @@ if __name__ == "__main__":
     tokenizer = "char"  # "pinyin" | "char"
 
     SUB_SET = ["train-clean-100", "train-clean-360", "train-other-500"]
-    dataset_dir = "<SOME_PATH>/LibriTTS"
+    dataset_dir = "/inspire/hdd/ws-f4d69b29-e0a5-44e6-bd92-acf4de9990f0/public-project/public/public_datas/speech/LibriTTS"
     dataset_name = f"LibriTTS_{'_'.join(SUB_SET)}_{tokenizer}".replace("train-clean-", "").replace("train-other-", "")
     save_dir = str(files("f5_tts").joinpath("../../")) + f"/data/{dataset_name}"
     print(f"\nPrepare for {dataset_name}, will save to {save_dir}\n")

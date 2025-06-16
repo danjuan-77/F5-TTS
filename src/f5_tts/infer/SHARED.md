@@ -22,8 +22,6 @@
     - [F5-TTS Base @ fi @ AsmoKoskinen](#f5-tts-base--fi--asmokoskinen)
 - [French](#french)
     - [F5-TTS Base @ fr @ RASPIAUDIO](#f5-tts-base--fr--raspiaudio)
-- [German](#german)
-    - [F5-TTS Base @ de @ hvoss-techfak](#f5-tts-base--de--hvoss-techfak)
 - [Hindi](#hindi)
     - [F5-TTS Small @ hi @ SPRINGLab](#f5-tts-small--hi--springlab)
 - [Italian](#italian)
@@ -99,22 +97,6 @@ Config: {"dim": 1024, "depth": 22, "heads": 16, "ff_mult": 2, "text_dim": 512, "
 - [Discussion about this training can be found here](https://github.com/SWivid/F5-TTS/issues/434).
 
 
-## German
-
-#### F5-TTS Base @ de @ hvoss-techfak
-|Model|🤗Hugging Face|Data (Hours)|Model License|
-|:---:|:------------:|:-----------:|:-------------:|
-|F5-TTS Base|[ckpt & vocab](https://huggingface.co/hvoss-techfak/F5-TTS-German)|[Mozilla Common Voice 19.0](https://commonvoice.mozilla.org/en/datasets) & 800 hours Crowdsourced |cc-by-nc-4.0|
-
-```bash
-Model: hf://hvoss-techfak/F5-TTS-German/model_f5tts_german.pt
-Vocab: hf://hvoss-techfak/F5-TTS-German/vocab.txt
-Config: {"dim": 1024, "depth": 22, "heads": 16, "ff_mult": 2, "text_dim": 512, "text_mask_padding": False, "conv_layers": 4, "pe_attn_head": 1}
-```
-
-- Finetuned by [@hvoss-techfak](https://github.com/hvoss-techfak)
-
-
 ## Hindi
 
 #### F5-TTS Small @ hi @ SPRINGLab
@@ -155,11 +137,11 @@ Config: {"dim": 1024, "depth": 22, "heads": 16, "ff_mult": 2, "text_dim": 512, "
 #### F5-TTS Base @ ja @ Jmica
 |Model|🤗Hugging Face|Data (Hours)|Model License|
 |:---:|:------------:|:-----------:|:-------------:|
-|F5-TTS Base|[ckpt & vocab](https://huggingface.co/Jmica/F5TTS/tree/main/JA_21999120)|[Emilia 1.7k JA](https://huggingface.co/datasets/amphion/Emilia-Dataset/tree/fc71e07) & [Galgame Dataset 5.4k](https://huggingface.co/datasets/OOPPEENN/Galgame_Dataset)|cc-by-nc-4.0|
+|F5-TTS Base|[ckpt & vocab](https://huggingface.co/Jmica/F5TTS/tree/main/JA_25498980)|[Emilia 1.7k JA](https://huggingface.co/datasets/amphion/Emilia-Dataset/tree/fc71e07) & [Galgame Dataset 5.4k](https://huggingface.co/datasets/OOPPEENN/Galgame_Dataset)|cc-by-nc-4.0|
 
 ```bash
-Model: hf://Jmica/F5TTS/JA_21999120/model_21999120.pt
-Vocab: hf://Jmica/F5TTS/JA_21999120/vocab_japanese.txt
+Model: hf://Jmica/F5TTS/JA_25498980/model_25498980.pt
+Vocab: hf://Jmica/F5TTS/JA_25498980/vocab_updated.txt
 Config: {"dim": 1024, "depth": 22, "heads": 16, "ff_mult": 2, "text_dim": 512, "text_mask_padding": False, "conv_layers": 4, "pe_attn_head": 1}
 ```
 

@@ -9,6 +9,7 @@ from omegaconf import OmegaConf
 from f5_tts.model import CFM, Trainer
 from f5_tts.model.dataset import load_dataset
 from f5_tts.model.utils import get_tokenizer
+from f5_tts.model.modules import Spec
 
 os.chdir(str(files("f5_tts").joinpath("../..")))  # change working directory to root of project (local editable)
 
@@ -33,7 +34,8 @@ def main(model_cfg):
     # set model
     model = CFM(
         transformer=model_cls(**model_arc, text_num_embeds=vocab_size, mel_dim=model_cfg.model.mel_spec.n_mel_channels),
-        mel_spec_kwargs=model_cfg.model.mel_spec,
+        mel_spec_module=Spec(n_mel_channels=model_cfg.model.mel_spec.n_mel_channels),
+        # mel_spec_kwargs=model_cfg.model.mel_spec,
         vocab_char_map=vocab_char_map,
     )
 
@@ -64,7 +66,7 @@ def main(model_cfg):
         model_cfg_dict=OmegaConf.to_container(model_cfg, resolve=True),
     )
 
-    train_dataset = load_dataset(model_cfg.datasets.name, tokenizer, mel_spec_kwargs=model_cfg.model.mel_spec)
+    train_dataset = load_dataset(model_cfg.datasets.name, tokenizer,mel_spec_module=Spec(n_mel_channels=model_cfg.model.mel_spec.n_mel_channels), dataset_type="CustomSpecDataset")
     trainer.train(
         train_dataset,
         num_workers=model_cfg.datasets.num_workers,
