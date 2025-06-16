@@ -211,16 +211,16 @@ fix_duration = args.fix_duration or config.get("fix_duration", fix_duration)
 device = args.device or config.get("device", device)
 
 
-# patches for pip pkg user
-if "infer/examples/" in ref_audio:
-    ref_audio = str(files("f5_tts").joinpath(f"{ref_audio}"))
-if "infer/examples/" in gen_file:
-    gen_file = str(files("f5_tts").joinpath(f"{gen_file}"))
-if "voices" in config:
-    for voice in config["voices"]:
-        voice_ref_audio = config["voices"][voice]["ref_audio"]
-        if "infer/examples/" in voice_ref_audio:
-            config["voices"][voice]["ref_audio"] = str(files("f5_tts").joinpath(f"{voice_ref_audio}"))
+# # patches for pip pkg user
+# if "infer/examples/" in ref_audio:
+#     ref_audio = str(files("f5_tts").joinpath(f"{ref_audio}"))
+# if "infer/examples/" in gen_file:
+#     gen_file = str(files("f5_tts").joinpath(f"{gen_file}"))
+# if "voices" in config:
+#     for voice in config["voices"]:
+#         voice_ref_audio = config["voices"][voice]["ref_audio"]
+#         if "infer/examples/" in voice_ref_audio:
+#             config["voices"][voice]["ref_audio"] = str(files("f5_tts").joinpath(f"{voice_ref_audio}"))
 
 
 # ignore gen_text if gen_file provided
