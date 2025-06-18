@@ -129,7 +129,7 @@ class DiT(nn.Module):
             text_num_embeds, text_dim, mask_padding=text_mask_padding, conv_layers=conv_layers
         )
         self.text_cond, self.text_uncond = None, None  # text cache
-        self.input_embed = InputEmbedding(mel_dim, text_dim, dim)
+        self.input_embed = InputEmbedding(mel_dim * 3, text_dim, dim)  # 修改输入维度为 mel_dim * 3
 
         self.rotary_embed = RotaryEmbedding(dim_head)
 
@@ -153,12 +153,12 @@ class DiT(nn.Module):
         self.long_skip_connection = nn.Linear(dim * 2, dim, bias=False) if long_skip_connection else None
 
         self.norm_out = AdaLayerNorm_Final(dim)  # final modulation
-        self.proj_out = nn.Linear(dim, mel_dim)
-        # 两个proj 分别预测a和b
-        # self.proj_a = nn.Linear(dim, mel_dim//2)
-        # self.proj_b = nn.Linear(dim, mel_dim//2)
+        
+        # 修改输出层，分别预测幅度谱和相位谱
+        self.proj_magnitude = nn.Linear(dim, mel_dim)  # 预测对数幅度谱
+        self.proj_phase = nn.Linear(dim, mel_dim * 2)  # 预测相位谱的sin和cos分量
+        
         self.checkpoint_activations = checkpoint_activations
-
         self.initialize_weights()
 
     def initialize_weights(self):
@@ -170,13 +170,10 @@ class DiT(nn.Module):
         # Zero-out output layers:
         nn.init.constant_(self.norm_out.linear.weight, 0)
         nn.init.constant_(self.norm_out.linear.bias, 0)
-        nn.init.constant_(self.proj_out.weight, 0)
-        nn.init.constant_(self.proj_out.bias, 0)
-        # zero init proj_a proj_b
-        # nn.init.constant_(self.proj_a.weight, 0)
-        # nn.init.constant_(self.proj_a.bias, 0)
-        # nn.init.constant_(self.proj_b.weight, 0)
-        # nn.init.constant_(self.proj_b.bias, 0)
+        nn.init.constant_(self.proj_magnitude.weight, 0)
+        nn.init.constant_(self.proj_magnitude.bias, 0)
+        nn.init.constant_(self.proj_phase.weight, 0)
+        nn.init.constant_(self.proj_phase.bias, 0)
 
     def ckpt_wrapper(self, module):
         # https://github.com/chuanyangjin/fast-DiT/blob/main/models.py
@@ -235,9 +232,16 @@ class DiT(nn.Module):
             x = self.long_skip_connection(torch.cat((x, residual), dim=-1))
 
         x = self.norm_out(x, t)
-        # a = self.proj_a(x)
-        # b = self.proj_b(x)
-        # output = torch.concat([a,b],dim=-1)
-        output = self.proj_out(x)
-
+        
+        # 分别预测幅度谱和相位谱
+        magnitude = self.proj_magnitude(x)  # [B, T, mel_dim]
+        phase = self.proj_phase(x)  # [B, T, mel_dim * 2]
+        
+        # 将相位分解为sin和cos分量
+        phase_sin, phase_cos = torch.chunk(phase, 2, dim=-1)  # 各自形状: [B, T, mel_dim]
+        
+        # 组合输出
+        output = torch.stack([magnitude, phase_sin, phase_cos], dim=-1)  # [B, T, mel_dim, 3]
+        output = output.permute(0, 3, 1, 2)  # [B, 3, T, mel_dim]
+        
         return output

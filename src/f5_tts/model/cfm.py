@@ -73,6 +73,9 @@ class CFM(nn.Module):
 
         # vocab map for tokenization
         self.vocab_char_map = vocab_char_map
+        
+        # 注册 STFT 参数
+        self.register_buffer('window', torch.hann_window(self.mel_spec.win_length))
 
     @property
     def device(self):
@@ -207,77 +210,74 @@ class CFM(nn.Module):
 
         return out, trajectory
 
-    def forward(
-        self,
-        inp: float["b n d"] | float["b nw"],  # mel or raw wave  # noqa: F722
-        text: int["b nt"] | list[str],  # noqa: F722
-        *,
-        lens: int["b"] | None = None,  # noqa: F821
-        noise_scheduler: str | None = None,
-    ):
-        # handle raw wave
-        if inp.ndim == 2:
-            inp = self.mel_spec(inp)
-            inp = inp.permute(0, 2, 1)
-            assert inp.shape[-1] == self.num_channels
-
-        batch, seq_len, dtype, device, _σ1 = *inp.shape[:2], inp.dtype, self.device, self.sigma
-
-        # handle text as string
-        if isinstance(text, list):
-            if exists(self.vocab_char_map):
-                text = list_str_to_idx(text, self.vocab_char_map).to(device)
-            else:
-                text = list_str_to_tensor(text).to(device)
-            assert text.shape[0] == batch
-
-        # lens and mask
-        if not exists(lens):
-            lens = torch.full((batch,), seq_len, device=device)
-
-        mask = lens_to_mask(lens, length=seq_len)  # useless here, as collate_fn will pad to max length in batch
-
-        # get a random span to mask out for training conditionally
-        frac_lengths = torch.zeros((batch,), device=self.device).float().uniform_(*self.frac_lengths_mask)
-        rand_span_mask = mask_from_frac_lengths(lens, frac_lengths)
-
-        if exists(mask):
-            rand_span_mask &= mask
-
-        # mel is x1
-        x1 = inp
-
-        # x0 is gaussian noise
-        x0 = torch.randn_like(x1)
-
-        # time step
-        time = torch.rand((batch,), dtype=dtype, device=self.device)
-        # TODO. noise_scheduler
-
-        # sample xt (φ_t(x) in the paper)
-        t = time.unsqueeze(-1).unsqueeze(-1)
-        φ = (1 - t) * x0 + t * x1
-        flow = x1 - x0
-
-        # only predict what is within the random mask span for infilling
-        cond = torch.where(rand_span_mask[..., None], torch.zeros_like(x1), x1)
-
-        # transformer and cfg training with a drop rate
-        drop_audio_cond = random() < self.audio_drop_prob  # p_drop in voicebox paper
-        if random() < self.cond_drop_prob:  # p_uncond in voicebox paper
-            drop_audio_cond = True
-            drop_text = True
-        else:
-            drop_text = False
-
-        # if want rigourously mask out padding, record in collate_fn in dataset.py, and pass in here
-        # adding mask will use more memory, thus also need to adjust batchsampler with scaled down threshold for long sequences
-        pred = self.transformer(
-            x=φ, cond=cond, text=text, time=time, drop_audio_cond=drop_audio_cond, drop_text=drop_text
+    def istft(self, mag, phase_sin, phase_cos):
+        """将预测的幅度谱和相位谱转换回音频"""
+        # 重建复数形式的STFT
+        phase = torch.atan2(phase_sin, phase_cos)
+        mag = mag.exp()  # 从对数幅度谱转回线性幅度谱
+        real = mag * torch.cos(phase)
+        imag = mag * torch.sin(phase)
+        spec_complex = torch.complex(real, imag)
+        
+        # 执行 iSTFT
+        audio = torch.istft(
+            spec_complex,
+            n_fft=self.mel_spec.n_fft,
+            hop_length=self.mel_spec.hop_length,
+            win_length=self.mel_spec.win_length,
+            window=self.window,
+            center=True,
+            return_complex=False
         )
+        return audio
 
-        # flow matching loss
-        loss = F.mse_loss(pred, flow, reduction="none")
-        loss = loss[rand_span_mask]
+    def forward(self, batch, return_loss=False):
+        if not return_loss:
+            return self.sample(batch)
 
-        return loss.mean(), cond, pred
+        mel = batch["mel_spec"]  # [B, 3, T, F]
+        text = batch["text"]
+        text_lengths = batch.get("text_lengths")
+        mel_lengths = batch.get("mel_lengths")
+
+        # 分离幅度谱和相位谱
+        log_magnitude = mel[:, 0]  # [B, T, F]
+        phase_sin = mel[:, 1]
+        phase_cos = mel[:, 2]
+
+        # 获取文本条件
+        text_cond = self.get_text_cond(text, text_lengths)
+        text_mask = lens_to_mask(text_lengths) if exists(text_lengths) else None
+
+        # 生成预测
+        pred = self.predict(log_magnitude, text_cond, text_mask, mel_lengths)  # [B, 3, T, F]
+        
+        # 分离预测的幅度谱和相位谱
+        pred_magnitude = pred[:, 0]  # [B, T, F]
+        pred_phase_sin = pred[:, 1]
+        pred_phase_cos = pred[:, 2]
+
+        # 计算频谱损失
+        spec_loss = F.mse_loss(pred_magnitude, log_magnitude, reduction='none')
+        phase_loss = F.mse_loss(pred_phase_sin, phase_sin, reduction='none') + \
+                    F.mse_loss(pred_phase_cos, phase_cos, reduction='none')
+        
+        if exists(mel_lengths):
+            mask = mask_from_frac_lengths(mel_lengths, *self.frac_lengths_mask)
+            spec_loss = spec_loss * mask
+            phase_loss = phase_loss * mask
+            
+        spec_loss = spec_loss.mean()
+        phase_loss = phase_loss.mean()
+
+        # 使用预测重建音频
+        pred_audio = self.istft(pred_magnitude, pred_phase_sin, pred_phase_cos)
+        gt_audio = self.istft(log_magnitude, phase_sin, phase_cos)
+        
+        # 计算重建损失
+        recon_loss = F.l1_loss(pred_audio, gt_audio)
+
+        # 总损失
+        total_loss = spec_loss + phase_loss + 0.5 * recon_loss
+
+        return total_loss

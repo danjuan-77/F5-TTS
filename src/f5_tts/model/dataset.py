@@ -214,9 +214,7 @@ class CustomSpecDataset(Dataset):
             if 0.3 <= duration <= 30:
                 break  # valid
             index = (index + 1) % len(self.data)
-        # if self.preprocessed_mel:
-        #     mel_spec = torch.tensor(row["mel_spec"])
-        # else:
+
         audio, source_sample_rate = torchaudio.load(audio_path)
         # make sure mono input
         if audio.shape[0] > 1:
@@ -232,14 +230,21 @@ class CustomSpecDataset(Dataset):
         real_part = stft_r[..., 0]               # (1, F, T)
         imag_part = stft_r[..., 1]       
         magnitude = (real_part**2 + imag_part**2).sqrt().clamp_min(1e-7)  # 避免 log(0)
-        log_magnitude = magnitude.log()     
-        # mel_spec = torch.concat([a,b], dim=0) # Float32(n_fft + 2, T)  
-        # Other ways
-        # mel_spec = [log(Magnitude), cos(Phase), sin(Phase)]
+        log_magnitude = magnitude.log()
+        
+        # 计算相位谱
+        phase = torch.atan2(imag_part, real_part)  # 计算相位谱
+        
+        # 将相位谱转换为sin和cos表示，避免相位的周期性问题
+        phase_sin = torch.sin(phase)
+        phase_cos = torch.cos(phase)
+        
+        # 将幅度谱和相位谱组合在一起
+        spec_features = torch.stack([log_magnitude, phase_sin, phase_cos], dim=0)  # (3, F, T)
+        
         return {
-            "mel_spec": log_magnitude,
+            "mel_spec": spec_features,
             "text": text,
-            # "audio": audio,
         }
 
 # Dynamic Batch Sampler
